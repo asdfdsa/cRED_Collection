@@ -1,5 +1,7 @@
 from __future__ import division
 from instamatic import TEMController
+from instamatic.camera import Camera
+import adscimage
 from dataconverter import fixDistortion
 import numpy as np
 import datetime
@@ -9,26 +11,23 @@ import glob
 import fabio
 from scipy import ndimage
 import threading
+import sys
+import time
 
 pxd={'15': 0.00838, '20': 0.00623, '25': 0.00499, '30': 0.00412, '40': 0.00296, '50': 0.00238, '60': 0.00198, '80': 0.00148}
 """Pixel size table."""
 
-ctrl=TEMController.initialize(camera="timepix")
+ctrl=TEMController.initialize()
 t_stop=threading.Event()
 
 def TiffToIMG(pathtiff,pathsmv,cl,startangle,osangle):
     import collections
 
-    #path=raw_input("Please copy the original tiff file directory here:\n")
     listing=glob.glob(os.path.join(pathtiff,"*.tiff"))
-    
-    #cl=raw_input("Please indicate the camera length you used:\n")
+
     px=pxd[cl]
     
     distance=483.89*0.00412/px
-    #print distance
-    #st_ang=raw_input("Please input the starting angle: \n")
-    #os_ang=raw_input("Please input the oscillation angle: \n")
     
     filenamelist=[]
     
@@ -46,13 +45,27 @@ def TiffToIMG(pathtiff,pathsmv,cl,startangle,osangle):
     pbc=pbc[~np.isnan(pbc)]
     pbc=np.reshape(pbc,[len(pbc)/2,2])
     pb=[np.mean(pbc[:,1]),np.mean(pbc[:,0])]
-    #pb=[246.72, 252.10]
+    pb=np.rint(pb)
+    
+    if len(img.data) == 516:
+        if pb[0]>255 and pb[0]<258:
+            pb[0]=255
+        if pb[0]>257 and pb[0]<261:
+            pb[0]=256
+        if pb[0]>260:
+            pb[0]=pb[0]-4
+        if pb[1]>255 and pb[1]<258:
+            pb[1]=255
+        if pb[1]>257 and pb[1]<261:
+            pb[1]=256
+        if pb[1]>260:
+            pb[1]=pb[1]-4
+    
     print "Primary beam at: {}".format(pb)
     
     for f in filenamelist:
         img=fabio.open(os.path.join(pathtiff,"{}.tiff".format(f)))
         data=np.ushort(img.data)
-        
         if len(data)==516:
             newdata=np.zeros([512,512],dtype=np.ushort)
             newdata[0:256,0:256]=data[0:256,0:256]
@@ -60,16 +73,10 @@ def TiffToIMG(pathtiff,pathsmv,cl,startangle,osangle):
             newdata[0:256,256:]=data[0:256,260:]
             newdata[256:,256:]=data[260:,260:]
             data=newdata
-            #data=np.hstack((np.vstack((data1,data2)),np.vstack((data3,data4))))
-
+            
         data=np.ushort(data)
-        
-        if len(data)!=512:
-            print "Image size not supported for conversion!\n"
-            break
-        
         header=collections.OrderedDict()
-        header['HEADER_BYTES'] = "  512"
+        header['HEADER_BYTES'] =512
         header['DIM'] =2
         header['BYTE_ORDER'] = "little_endian"
         header['TYPE'] = "unsigned_short"
@@ -94,7 +101,7 @@ def TiffToIMG(pathtiff,pathsmv,cl,startangle,osangle):
         header['BEAM_CENTER_Y'] = "%.2f" % pb[1]
         header['DENZO_X_BEAM'] = "%.2f" % (pb[1]*0.05)
         header['DENZO_Y_BEAM'] = "%.2f" % (pb[0]*0.05)
-        newimg=fabio.adscimage.adscimage(data,header)
+        newimg=adscimage.adscimage(data,header)
         newimg.write(os.path.join(pathsmv,"{}.img".format(f)))
     
     return pb
@@ -206,7 +213,7 @@ def ED3DCreator(pathtiff,pathred,pxs,startangle,endangle):
     step=(up-low)/nb
     
     ed3d.write("WAVELENGTH    0.02508\n")
-    ed3d.write("ROTATIONAXIS    51.0\n")
+    ed3d.write("ROTATIONAXIS    -129.5\n")
     ed3d.write("CCDPIXELSIZE    {}\n".format(pxs))
     ed3d.write("GINIOTILTSTEP    {}\n".format(step))
     ed3d.write("BEAMTILTSTEP    0\n")
@@ -272,23 +279,35 @@ def main(path,stopEvent,exposure):
     a=a0
     print "Please start to rotate the goniometer..."
     
-    while (a0-a)<0.5:
-        a=ctrl.stageposition.a
-        if a - a0 > 0.5: #In order to prevent the instability of goniometer reading and status
-            break
-        
-    t=threading.thread(name='Checking TEM tiltx start',target=stopCollection)
-    t.start()
-    ind=10000
-    startangle=a
-    while not stopEvent.is_set():
-        #try:
-        ctrl.getImage(exposure, 1, out=os.path.join(pathtiff,"{}.tiff".format(ind)), header_keys=None)
-        ind=ind+1
-        
-        #except KeyboardInterrupt:
-            #break
+    try:
+        Camera(kind="timepix").establishConnection()
+        while (a0-a)<0.5:
+            a=ctrl.stageposition.a
+            if a - a0 > 0.5: #In order to prevent the instability of goniometer reading and status
+                break
+            
+        t=threading.thread(name='Checking TEM tiltx start',target=stopCollection)
+        t.start()
+        ind=10001
+        startangle=a
+        while not stopEvent.is_set():
+            ctrl.getImage(exposure, 1, out=os.path.join(pathtiff,"{}.tiff".format(ind)), header_keys=None)
+            print "{}.tiff saved.\n".format(ind)
+            ind=ind+1
     
+    except RuntimeError:
+        ind=10001
+        startangle=0
+        while not stopEvent.is_set():
+            #try:
+            ctrl.getImage(exposure, 4, out=os.path.join(pathtiff,"{}.tiff".format(ind)), header_keys=None)
+            print "{}.tiff saved.\n".format(ind)
+            ind=ind+1
+            time.sleep(2)
+    else:
+        print "Cannot find proper camera!"
+        sys.exit()
+        
     endangle=ctrl.stageposition.a
     
     log.write("starting angle: {}\n".format(startangle))
