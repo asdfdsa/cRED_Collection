@@ -1,8 +1,7 @@
 from __future__ import division
 from instamatic import TEMController
-from instamatic.camera import Camera
-import adscimage
 from dataconverter import fixDistortion
+import adscimage
 import numpy as np
 import datetime
 import msvcrt
@@ -11,13 +10,11 @@ import glob
 import fabio
 from scipy import ndimage
 import threading
-import sys
-import time
 
 pxd={'15': 0.00838, '20': 0.00623, '25': 0.00499, '30': 0.00412, '40': 0.00296, '50': 0.00238, '60': 0.00198, '80': 0.00148}
 """Pixel size table."""
 
-ctrl=TEMController.initialize()
+ctrl=TEMController.initialize(camera="timepix")
 t_stop=threading.Event()
 
 def TiffToIMG(pathtiff,pathsmv,cl,startangle,osangle):
@@ -45,22 +42,7 @@ def TiffToIMG(pathtiff,pathsmv,cl,startangle,osangle):
     pbc=pbc[~np.isnan(pbc)]
     pbc=np.reshape(pbc,[len(pbc)/2,2])
     pb=[np.mean(pbc[:,1]),np.mean(pbc[:,0])]
-    pb=np.rint(pb)
-    
-    if len(img.data) == 516:
-        if pb[0]>255 and pb[0]<258:
-            pb[0]=255
-        if pb[0]>257 and pb[0]<261:
-            pb[0]=256
-        if pb[0]>260:
-            pb[0]=pb[0]-4
-        if pb[1]>255 and pb[1]<258:
-            pb[1]=255
-        if pb[1]>257 and pb[1]<261:
-            pb[1]=256
-        if pb[1]>260:
-            pb[1]=pb[1]-4
-    
+
     print "Primary beam at: {}".format(pb)
     
     for f in filenamelist:
@@ -73,7 +55,6 @@ def TiffToIMG(pathtiff,pathsmv,cl,startangle,osangle):
             newdata[0:256,256:]=data[0:256,260:]
             newdata[256:,256:]=data[260:,260:]
             data=newdata
-            
         data=np.ushort(data)
         header=collections.OrderedDict()
         header['HEADER_BYTES'] =512
@@ -268,48 +249,35 @@ def main(path,stopEvent,exposure):
         os.makedirs(os.path.join(path,"RED"))
     pathred=os.path.join(path,"RED")
         
-    """print "log file created. Press enter to continue."
+    print "log file created. Press enter to continue."
     wait()
     
     print "Please rotate the particle to the starting angle (i.e. -45 degree)."
     print "Please adjust z height. Press enter if done the preparation."
-    wait()"""
+    wait()
     
     a0=ctrl.stageposition.a
     a=a0
     print "Please start to rotate the goniometer..."
     
-    try:
-        Camera(kind="timepix").establishConnection()
-        while (a0-a)<0.5:
-            a=ctrl.stageposition.a
-            if a - a0 > 0.5: #In order to prevent the instability of goniometer reading and status
-                break
-            
-        t=threading.Thread(name='Checking TEM tiltx start',target=stopCollection)
-        t.start()
-        ind=10001
-        startangle=a
-        while not stopEvent.is_set():
-            ctrl.getImage(exposure, 1, out=os.path.join(pathtiff,"{}.tiff".format(ind)), header_keys=None)
-            print "{}.tiff saved.\n".format(ind)
-            ind=ind+1
-    
-    except RuntimeError:
-        ind=10001
-        startangle=0
-
-        while not stopEvent.is_set():
-            #try:
-            """ctrl.getImage(exposure, 4, out=os.path.join(pathtiff,"{}.tiff".format(ind)), header_keys=None)
-            print "{}.tiff saved.\n".format(ind)
-            ind=ind+1"""
-            print "Collecting Images..."
-            time.sleep(2)
-    else:
-        print "Cannot find proper camera!"
-        sys.exit()
+    while (a0-a)<0.5:
+        a=ctrl.stageposition.a
+        if a - a0 > 0.5: #In order to prevent the instability of goniometer reading and status
+            break
         
+    """t=threading.Thread(name='Checking TEM tiltx start',target=stopCollection)
+    t.start()"""
+    ind=10000
+    startangle=a
+    
+    ctrl.cam.block()
+    while True:
+        if msvcrt.kbhit():
+            break
+        ctrl.getImage(exposure, 1, out=os.path.join(pathtiff,"{}.tiff".format(ind)), header_keys=None)
+        ind=ind+1
+    ctrl.cam.unblock()
+    
     endangle=ctrl.stageposition.a
     
     log.write("starting angle: {}\n".format(startangle))

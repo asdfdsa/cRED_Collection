@@ -5,6 +5,7 @@ import threading
 import os
 import cRED_Main
 import numpy as np
+import videoStream
 from instamatic.camera import Camera
 
 class cREDGUI(threading.Thread):
@@ -67,7 +68,7 @@ class cREDGUI(threading.Thread):
         self.livestream.streaminit=streaminit
         self.livestream.pack()
         
-        self.thread=threading.Thread(target=self.videoloop,args=())
+        self.thread=threading.Thread(target=None,args=())
         self.thread.start()
 
         self.done=Label(master,text="Data collection Done.")
@@ -119,5 +120,6 @@ class cREDGUI(threading.Thread):
 root=Tk()
 myGui=cREDGUI(root)
 root.geometry('800x800')
+stream = videoStream.VideoViewer(cam="simulate")
 root.mainloop()
-        
+stream.close()
