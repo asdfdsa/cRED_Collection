@@ -194,7 +194,7 @@ def ED3DCreator(pathtiff,pathred,pxs,startangle,endangle):
     step=(up-low)/nb
     
     ed3d.write("WAVELENGTH    0.02508\n")
-    ed3d.write("ROTATIONAXIS    -129.5\n")
+    ed3d.write("ROTATIONAXIS    -38.5\n")
     ed3d.write("CCDPIXELSIZE    {}\n".format(pxs))
     ed3d.write("GINIOTILTSTEP    {}\n".format(step))
     ed3d.write("BEAMTILTSTEP    0\n")
@@ -213,6 +213,39 @@ def ED3DCreator(pathtiff,pathred,pxs,startangle,endangle):
     ed3d.write("ENDFILELIST")
     ed3d.close()
     print "Ed3d file created in path: {}".format(pathred)
+    
+def XDSINPCreator(pathsmv,indend,startangle,lowres,highres,pb,cl,osangle,RA):
+    from math import cos,pi
+    px=pxd[cl]
+    distance=483.89*0.00412/px
+    print "Creating XDS inp file in foler: {}...".format(pathsmv)
+    f=open('XDS_template.INP','r')
+    f_xds=open(os.path.join(pathsmv,'XDS.INP'),'w')
+    nb_line=1
+    for line in f:
+        if nb_line==54:
+            f_xds.write("DATA_RANGE=           {} {}\n".format(1,indend))
+        elif nb_line==56:
+            f_xds.write("SPOT_RANGE=           {} {}\n".format(1,indend))
+        elif nb_line==58:
+            f_xds.write("BACKGROUND_RANGE=           {} {}\n".format(1,indend))
+        elif nb_line==69:
+            f_xds.write("STARTING_ANGLE= {}\n".format(startangle))
+        elif nb_line==134:
+            f_xds.write("INCLUDE_RESOLUTION_RANGE= {}   {}\n".format(lowres,highres))
+        elif nb_line==156:
+            f_xds.write("ORGX= {}    ORGY= {}       !Detector origin (pixels). Often close to the image center, i.e. ORGX=NX/2; ORGY=NY/2\n".format(pb[0],pb[1]))
+        elif nb_line==157:
+            f_xds.write("DETECTOR_DISTANCE= +{}   ! can be negative. Positive because the detector normal points away from the crystal.\n".format(distance))
+        elif nb_line==159:
+            f_xds.write(" OSCILLATION_RANGE= {}\n".format(osangle))
+        elif nb_line==162:
+            f_xds.write("ROTATION_AXIS= {} {} 0\n".format(cos(RA/180*pi),cos((RA+90)/180*pi)))
+        else:
+            f_xds.write(line)
+        nb_line=nb_line+1
+    
+    print "XDS.inp file created. Modify .img path accordingly in your Linux machine."
     
 def wait():
     msvcrt.getch()
@@ -267,7 +300,7 @@ def main(path,stopEvent,exposure):
         
     """t=threading.Thread(name='Checking TEM tiltx start',target=stopCollection)
     t.start()"""
-    ind=10000
+    ind=10001
     startangle=a
     
     ctrl.cam.block()
@@ -298,6 +331,9 @@ def main(path,stopEvent,exposure):
     ED3DCreator(pathtiff, pathred, pxs, startangle, endangle)
     MRCCreator(pathtiff, pathred, header=mrc_header,pb=pb)
     print "MRC (size 516*516) and ed3d files saved in folder {}\n".format(pathred)
+    
+    RA=-38.5
+    XDSINPCreator(pathsmv,ind,startangle,20,0.8,pb,str(int(cl/10)),osangle,RA)
 
     print "Data collection done. Close the live window to end the session.\n"
     
